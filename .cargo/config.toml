@@ -1,0 +1,12 @@
+# Android 15+ devices may use 16 KB memory pages; shared libraries must be
+# aligned accordingly or the loader refuses them. NDK r28 already defaults to
+# this, the explicit flag keeps older NDKs correct too.
+#
+# No `target-feature=+fp16,+dotprod` here on purpose: those are ARMv8.2
+# extensions, and enabling them globally makes the library crash with SIGILL on
+# the ARMv8.0 phones (Cortex-A53/A73) that minSdk 29 still admits.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

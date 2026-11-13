@@ -1,0 +1,27 @@
+[package]
+name = "examic-ffi"
+description = "The native library loaded by the Android app: engine, UniFFI control API and JNI audio path"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "examic_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+examic-vault.workspace = true
+examic-audio.workspace = true
+examic-db.workspace = true
+uniffi = "0.32"
+jni-sys = "0.4"
+uuid = { version = "1", features = ["v7"] }
+thiserror.workspace = true
+zeroize.workspace = true
+log.workspace = true
+
+# libopus needs CMake, so only the shipped library is built with it. Anywhere
+# else the crate exists to run the engine's tests, which use a stand-in encoder.
+[target.'cfg(target_os = "android")'.dependencies]
+examic-audio = { workspace = true, features = ["opus"] }
+android_logger = { version = "0.15", default-features = false }

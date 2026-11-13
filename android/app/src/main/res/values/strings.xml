@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Examic</string>
+
+    <!-- Common -->
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="rename">Rename</string>
+    <string name="back">Back</string>
+    <string name="more_options">More options</string>
+    <string name="error_generic">Something went wrong: %1$s</string>
+
+    <!-- Library -->
+    <string name="record">Record</string>
+    <string name="library_empty_title">No recordings yet</string>
+    <string name="library_empty_body">Record a meeting or a lecture. Everything stays on this device, encrypted.</string>
+    <string name="library_unlock_failed">The library could not be opened</string>
+    <string name="recording_in_progress">Recording in progress</string>
+    <string name="open">Open</string>
+    <string name="recovered">Recovered</string>
+    <plurals name="bookmark_count">
+        <item quantity="one">%1$d bookmark</item>
+        <item quantity="other">%1$d bookmarks</item>
+    </plurals>
+    <string name="default_title">Recording %1$s</string>
+    <string name="rename_title">Rename recording</string>
+    <string name="title_label">Title</string>
+    <string name="delete_title">Delete recording?</string>
+    <string name="delete_body">“%1$s” will be removed permanently.</string>
+    <string name="microphone_denied">Examic needs the microphone to record. You can allow it in the app\'s settings.</string>
+
+    <!-- Recorder -->
+    <string name="recorder_starting">Starting…</string>
+    <string name="recorder_saving">Saving…</string>
+    <string name="recorder_paused">Paused</string>
+    <string name="stop">Stop</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="highlight">Highlight</string>
+    <string name="add_note">Note</string>
+    <string name="note_title">Note at %1$s</string>
+    <string name="note_label">What happened here?</string>
+    <string name="highlight_added">Highlight at %1$s</string>
+    <string name="note_added">Note at %1$s</string>
+    <string name="speech_detected">Speech</string>
+    <string name="no_speech_detected">Listening</string>
+    <string name="recording_failed">The recording stopped: %1$s</string>
+
+    <!-- Player -->
+    <string name="play">Play</string>
+    <string name="back_10_seconds">Back 10 seconds</string>
+    <string name="forward_10_seconds">Forward 10 seconds</string>
+    <string name="skip_silence">Skip silence</string>
+    <string name="speed">Speed</string>
+    <string name="bookmarks">Bookmarks</string>
+    <string name="add_bookmark">Add bookmark</string>
+    <string name="bookmark_title">Bookmark at %1$s</string>
+    <string name="note_optional_label">Note (optional)</string>
+    <string name="no_bookmarks">No bookmarks. Add one while recording or here.</string>
+    <string name="highlight_label">Highlight</string>
+    <string name="delete_bookmark">Delete bookmark</string>
+    <string name="recovered_notice">This recording was interrupted. Its end may be missing.</string>
+
+    <!-- Notification -->
+    <string name="notification_channel">Recording</string>
+    <string name="notification_recording">Recording</string>
+    <string name="notification_paused">Recording paused</string>
+</resources>

@@ -1,0 +1,6 @@
+[bindings.kotlin]
+package_name = "io.github.aelgeaer.examic.core"
+cdylib_name = "examic_core"
+# Generates Android-aware object cleanup: android.system.SystemCleaner on
+# API 34+, JNA's cleaner below that.
+android = true

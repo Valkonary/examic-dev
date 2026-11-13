@@ -1,0 +1,10 @@
+# Store and check out text with LF everywhere, so scripts run on Linux CI and
+# Rust/Kotlin sources look the same on every machine.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.jar binary
+*.png binary

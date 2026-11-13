@@ -1,0 +1,21 @@
+# Rust
+/target/
+
+# Gradle / Android
+.gradle/
+build/
+/android/local.properties
+/android/.kotlin/
+*.apk
+*.aab
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Signing material must never be committed
+*.jks
+*.keystore
+keystore.properties

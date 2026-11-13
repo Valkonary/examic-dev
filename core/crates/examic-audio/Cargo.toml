@@ -1,0 +1,18 @@
+[package]
+name = "examic-audio"
+description = "Capture engine: lock-free PCM hand-off, level metering, VAD and Ogg Opus encoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# libopus is C and needs CMake to build. Everything else in this crate is pure
+# Rust and is tested on the host with a stand-in encoder.
+opus = ["dep:opus"]
+
+[dependencies]
+ringbuf = "0.6"
+ogg = "0.9"
+opus = { version = "0.4", optional = true }
+thiserror.workspace = true
+log.workspace = true

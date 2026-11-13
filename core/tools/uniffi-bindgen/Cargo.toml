@@ -1,0 +1,10 @@
+[package]
+name = "uniffi-bindgen"
+description = "Generates the Kotlin bindings for libexamic_core.so; run by the Gradle build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+uniffi = { version = "0.32", features = ["cli"] }
