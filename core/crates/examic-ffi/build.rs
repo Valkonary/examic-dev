@@ -16,7 +16,11 @@ fn main() {
     }
     let dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("android-link");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("libpthread.so"), "/* pthreads are part of bionic's libc */\n").unwrap();
+    std::fs::write(
+        dir.join("libpthread.so"),
+        "/* pthreads are part of bionic's libc */\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("libstdc++.so"), "INPUT(-lc++_static -lc++abi)\n").unwrap();
     println!("cargo:rustc-link-search=native={}", dir.display());
 }

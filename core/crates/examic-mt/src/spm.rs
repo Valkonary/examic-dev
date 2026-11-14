@@ -83,7 +83,8 @@ pub struct SpmTokenizer {
 impl SpmTokenizer {
     /// Loads `spm.model` and Marian's `vocab.json`.
     pub fn load(spm_path: &Path, vocab_path: &Path) -> Result<Self, SpmError> {
-        let read = |p: &Path| std::fs::read(p).map_err(|e| SpmError::Io(p.display().to_string(), e));
+        let read =
+            |p: &Path| std::fs::read(p).map_err(|e| SpmError::Io(p.display().to_string(), e));
         Self::from_bytes(&read(spm_path)?, &read(vocab_path)?)
     }
 
@@ -100,7 +101,12 @@ impl SpmTokenizer {
             Ok(_) => return Err(SpmError::Vocab("not an object".into())),
             Err(e) => return Err(SpmError::Vocab(e.to_string())),
         };
-        let id_of = |piece: &str| vocab.get(piece).copied().ok_or_else(|| SpmError::Vocab(format!("no {piece}")));
+        let id_of = |piece: &str| {
+            vocab
+                .get(piece)
+                .copied()
+                .ok_or_else(|| SpmError::Vocab(format!("no {piece}")))
+        };
         let unk_id = id_of("<unk>")?;
         let eos_id = id_of("</s>")?;
         let special_ids = ["</s>", "<unk>", "<pad>", "<s>"]
@@ -113,10 +119,20 @@ impl SpmTokenizer {
             .iter()
             .filter(|p| matches!(p.kind, PieceType::Normal | PieceType::UserDefined))
             .collect();
-        let min_score = candidates.iter().map(|p| p.score).fold(f32::INFINITY, f32::min);
-        let max_score = candidates.iter().map(|p| p.score).fold(f32::NEG_INFINITY, f32::max);
+        let min_score = candidates
+            .iter()
+            .map(|p| p.score)
+            .fold(f32::INFINITY, f32::min);
+        let max_score = candidates
+            .iter()
+            .map(|p| p.score)
+            .fold(f32::NEG_INFINITY, f32::max);
         Ok(Self {
-            max_piece_chars: candidates.iter().map(|p| p.text.chars().count()).max().unwrap_or(1),
+            max_piece_chars: candidates
+                .iter()
+                .map(|p| p.text.chars().count())
+                .max()
+                .unwrap_or(1),
             pieces: candidates
                 .iter()
                 .map(|p| (p.text.clone(), (p.score, p.kind == PieceType::UserDefined)))
@@ -138,7 +154,11 @@ impl SpmTokenizer {
 
     /// Normalises text and turns spaces into word-start markers.
     fn normalize(&self, text: &str) -> String {
-        let text: String = if self.normalizer.nfkc { text.nfkc().collect() } else { text.to_owned() };
+        let text: String = if self.normalizer.nfkc {
+            text.nfkc().collect()
+        } else {
+            text.to_owned()
+        };
         // Control characters carry nothing a translation could use.
         let text: String = text
             .chars()
@@ -146,7 +166,10 @@ impl SpmTokenizer {
             .filter(|c| !c.is_control())
             .collect();
         let text = if self.normalizer.remove_extra_whitespaces {
-            text.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
+            text.split(' ')
+                .filter(|w| !w.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
         } else {
             text
         };
@@ -177,7 +200,11 @@ impl SpmTokenizer {
                 candidate.push(chars[start + len - 1]);
                 if let Some(&(score, user_defined)) = self.pieces.get(&candidate) {
                     // libsentencepiece makes user-defined pieces always win.
-                    let score = if user_defined { len as f32 * self.max_score - 0.1 } else { score };
+                    let score = if user_defined {
+                        len as f32 * self.max_score - 0.1
+                    } else {
+                        score
+                    };
                     let end = start + len;
                     if base + score > best[end].0 {
                         best[end] = (base + score, start);
@@ -246,7 +273,10 @@ impl<'a> Reader<'a> {
     fn varint(&mut self) -> Result<u64, SpmError> {
         let mut value = 0u64;
         for shift in (0..64).step_by(7) {
-            let (&byte, rest) = self.data.split_first().ok_or(SpmError::Model("truncated varint"))?;
+            let (&byte, rest) = self
+                .data
+                .split_first()
+                .ok_or(SpmError::Model("truncated varint"))?;
             self.data = rest;
             value |= u64::from(byte & 0x7F) << shift;
             if byte & 0x80 == 0 {
@@ -319,7 +349,8 @@ fn parse_piece(data: &[u8]) -> Result<Piece, SpmError> {
     while let Some((number, field)) = reader.next()? {
         match (number, field) {
             (1, Field::Bytes(b)) => {
-                piece.text = String::from_utf8(b.to_vec()).map_err(|_| SpmError::Model("piece is not UTF-8"))?
+                piece.text = String::from_utf8(b.to_vec())
+                    .map_err(|_| SpmError::Model("piece is not UTF-8"))?
             }
             (2, Field::Fixed32(bits)) => piece.score = f32::from_bits(bits),
             (3, Field::Varint(v)) => piece.kind = PieceType::from_proto(v),
@@ -334,7 +365,9 @@ fn check_trainer(data: &[u8]) -> Result<(), SpmError> {
     while let Some((number, field)) = reader.next()? {
         match (number, field) {
             // model_type: UNIGRAM = 1 (the default).
-            (3, Field::Varint(v)) if v != 1 => return Err(SpmError::Unsupported("not a unigram model")),
+            (3, Field::Varint(v)) if v != 1 => {
+                return Err(SpmError::Unsupported("not a unigram model"));
+            }
             // treat_whitespace_as_suffix
             (24, Field::Varint(1)) => return Err(SpmError::Unsupported("whitespace as suffix")),
             _ => {}

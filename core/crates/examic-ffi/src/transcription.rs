@@ -26,7 +26,12 @@ use crate::engine::Shared;
 pub trait EngineEvents: Send + Sync {
     /// `progress` is `0.0..=1.0` for work on a finished recording and `None`
     /// for live transcription, whose end is not known.
-    fn transcript_changed(&self, recording_id: &str, status: TranscriptStatus, progress: Option<f32>);
+    fn transcript_changed(
+        &self,
+        recording_id: &str,
+        status: TranscriptStatus,
+        progress: Option<f32>,
+    );
 }
 
 pub(crate) enum Job {
@@ -92,13 +97,16 @@ fn store(
     let rows: Vec<TranscriptSegment> = segments
         .into_iter()
         .map(|s| {
-            let text_en = translator.as_mut().and_then(|mt| match translate_text(mt.as_mut(), &s.text) {
-                Ok(text) => Some(text),
-                Err(e) => {
-                    log::warn!("translation failed: {e}");
-                    None
-                }
-            });
+            let text_en =
+                translator
+                    .as_mut()
+                    .and_then(|mt| match translate_text(mt.as_mut(), &s.text) {
+                        Ok(text) => Some(text),
+                        Err(e) => {
+                            log::warn!("translation failed: {e}");
+                            None
+                        }
+                    });
             TranscriptSegment {
                 start_ms: window.start_ms + s.start_ms,
                 end_ms: window.start_ms + s.end_ms,
@@ -110,7 +118,10 @@ fn store(
     if rows.is_empty() {
         return Ok(());
     }
-    shared.db.add_transcript_segments(id, &rows).map_err(|e| e.to_string())
+    shared
+        .db
+        .add_transcript_segments(id, &rows)
+        .map_err(|e| e.to_string())
 }
 
 /// A translator if the recording asks for one. Without the model the
@@ -128,18 +139,25 @@ fn optional_translator(shared: &Shared, wanted: bool) -> Option<Box<dyn Translat
 
 fn transcribe(shared: &Shared, id: &str) -> JobResult {
     let recording = shared.db.recording(id).map_err(|e| e.to_string())?;
-    shared.db.set_transcript_status(id, TranscriptStatus::Running).map_err(|e| e.to_string())?;
+    shared
+        .db
+        .set_transcript_status(id, TranscriptStatus::Running)
+        .map_err(|e| e.to_string())?;
     shared.db.clear_transcript(id).map_err(|e| e.to_string())?;
     shared.set_progress(id, 0.0);
     shared.notify(id, TranscriptStatus::Running, Some(0.0));
 
-    let mut asr = shared.backends.transcriber(false).map_err(|e| e.to_string())?;
+    let mut asr = shared
+        .backends
+        .transcriber(false)
+        .map_err(|e| e.to_string())?;
     let mut mt = optional_translator(shared, recording.translate);
     let speech = shared.db.speech_intervals(id).map_err(|e| e.to_string())?;
     let duration_ms = recording.duration_ms.max(1);
     let windows = plan_windows(&speech, recording.duration_ms);
 
-    let file = File::open(shared.recordings_dir.join(&recording.audio_file)).map_err(|e| e.to_string())?;
+    let file =
+        File::open(shared.recordings_dir.join(&recording.audio_file)).map_err(|e| e.to_string())?;
     // Decoded audio is kept only from the start of the next window on, so a
     // long recording never sits in memory as a whole.
     let mut buffer: Vec<f32> = Vec::new();
@@ -148,9 +166,15 @@ fn transcribe(shared: &Shared, id: &str) -> JobResult {
     let mut error: Option<String> = None;
 
     let mut run_window = |buffer: &[f32], buffer_start: usize, window: Window| -> JobResult {
-        let from = ms_to_samples(window.start_ms).saturating_sub(buffer_start).min(buffer.len());
-        let to = ms_to_samples(window.end_ms).saturating_sub(buffer_start).min(buffer.len());
-        let segments = asr.transcribe(&buffer[from..to]).map_err(|e| e.to_string())?;
+        let from = ms_to_samples(window.start_ms)
+            .saturating_sub(buffer_start)
+            .min(buffer.len());
+        let to = ms_to_samples(window.end_ms)
+            .saturating_sub(buffer_start)
+            .min(buffer.len());
+        let segments = asr
+            .transcribe(&buffer[from..to])
+            .map_err(|e| e.to_string())?;
         store(shared, id, window, segments, mt.as_mut())?;
         let progress = (window.end_ms as f32 / duration_ms as f32).clamp(0.0, 1.0);
         shared.set_progress(id, progress);
@@ -161,14 +185,18 @@ fn transcribe(shared: &Shared, id: &str) -> JobResult {
     let total = ms_to_samples(recording.duration_ms) as u64;
     let decoded = codec::decode_16k(file, total, &mut |pcm| {
         buffer.extend_from_slice(pcm);
-        while next < windows.len() && buffer_start + buffer.len() >= ms_to_samples(windows[next].end_ms) {
+        while next < windows.len()
+            && buffer_start + buffer.len() >= ms_to_samples(windows[next].end_ms)
+        {
             if let Err(e) = run_window(&buffer, buffer_start, windows[next]) {
                 error = Some(e);
                 return Ok(false);
             }
             next += 1;
         }
-        let keep_from = windows.get(next).map_or(usize::MAX, |w| ms_to_samples(w.start_ms));
+        let keep_from = windows
+            .get(next)
+            .map_or(usize::MAX, |w| ms_to_samples(w.start_ms));
         let drop = keep_from.saturating_sub(buffer_start).min(buffer.len());
         buffer.drain(..drop);
         buffer_start += drop;
@@ -189,7 +217,10 @@ fn transcribe(shared: &Shared, id: &str) -> JobResult {
 }
 
 fn translate(shared: &Shared, id: &str) -> JobResult {
-    shared.db.set_transcript_status(id, TranscriptStatus::Running).map_err(|e| e.to_string())?;
+    shared
+        .db
+        .set_transcript_status(id, TranscriptStatus::Running)
+        .map_err(|e| e.to_string())?;
     shared.set_progress(id, 0.0);
     shared.notify(id, TranscriptStatus::Running, Some(0.0));
     let mut mt = shared.backends.translator().map_err(|e| e.to_string())?;
@@ -225,7 +256,19 @@ impl SpeechListener for LiveListener {
     }
 
     fn speech(&mut self, interval: SpeechInterval) {
-        if let Some(window) = self.chunker.speech(interval.start_ms as i64, interval.end_ms as i64) {
+        if let Some(window) = self
+            .chunker
+            .speech(interval.start_ms as i64, interval.end_ms as i64)
+        {
+            let _ = self.sender.send(window);
+        }
+    }
+}
+
+impl Drop for LiveListener {
+    /// The capture session drops its listener when the recording ends.
+    fn drop(&mut self) {
+        if let Some(window) = self.chunker.finish() {
             let _ = self.sender.send(window);
         }
     }
@@ -234,7 +277,11 @@ impl SpeechListener for LiveListener {
 /// Starts the live worker for recording `id`. Windows queue up if the worker
 /// falls behind and are finished after the recording stops; the transcript
 /// is marked done once the listener is dropped and the queue is empty.
-pub(crate) fn start_live(shared: Arc<Shared>, id: String, translate: bool) -> std::io::Result<LiveListener> {
+pub(crate) fn start_live(
+    shared: Arc<Shared>,
+    id: String,
+    translate: bool,
+) -> std::io::Result<LiveListener> {
     let (sender, receiver) = mpsc::channel();
     thread::Builder::new()
         .name("examic-live".into())
@@ -253,7 +300,9 @@ fn live_worker(shared: &Shared, id: &str, translate: bool, windows: Receiver<(Wi
             log::error!("live transcription unavailable: {e}");
             // Let the recording go on; the queue drains into nothing.
             for _ in windows {}
-            let _ = shared.db.set_transcript_status(id, TranscriptStatus::Failed);
+            let _ = shared
+                .db
+                .set_transcript_status(id, TranscriptStatus::Failed);
             shared.notify(id, TranscriptStatus::Failed, None);
             return;
         }
@@ -276,7 +325,11 @@ fn live_worker(shared: &Shared, id: &str, translate: bool, windows: Receiver<(Wi
             }
         }
     }
-    let status = if failed { TranscriptStatus::Failed } else { TranscriptStatus::Done };
+    let status = if failed {
+        TranscriptStatus::Failed
+    } else {
+        TranscriptStatus::Done
+    };
     if shared.db.set_transcript_status(id, status).is_ok() {
         shared.notify(id, status, None);
     }

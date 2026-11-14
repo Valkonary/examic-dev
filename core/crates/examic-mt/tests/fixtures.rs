@@ -20,7 +20,9 @@ fn model_dir() -> Option<PathBuf> {
 }
 
 fn fixture(name: &str) -> Vec<serde_json::Value> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name);
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
@@ -33,12 +35,25 @@ fn tokenizer_matches_marian_tokenizer() {
     let tokenizer = SpmTokenizer::load(&dir.join("spm.model"), &dir.join("vocab.json")).unwrap();
     for case in fixture("tokenizer_fixture.json") {
         let text = case["text"].as_str().unwrap();
-        let expected: Vec<i64> = case["ids"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
+        let expected: Vec<i64> = case["ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
         assert_eq!(tokenizer.encode(text, 512), expected, "{text}");
     }
     for case in fixture("translation_fixture.json") {
-        let ids: Vec<i64> = case["output_ids"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
-        assert_eq!(tokenizer.decode(&ids), case["translation"].as_str().unwrap());
+        let ids: Vec<i64> = case["output_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        assert_eq!(
+            tokenizer.decode(&ids),
+            case["translation"].as_str().unwrap()
+        );
     }
 }
 

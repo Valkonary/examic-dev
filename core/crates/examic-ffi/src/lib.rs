@@ -48,7 +48,9 @@ impl From<EngineError> for ExamicError {
             | EngineError::Busy
             | EngineError::NoTranscript => Self::InvalidState(message),
             EngineError::InvalidArgument(_) => Self::InvalidArgument(message),
-            EngineError::Db(_) | EngineError::Capture(_) | EngineError::Io(_) => Self::Storage(message),
+            EngineError::Db(_) | EngineError::Capture(_) | EngineError::Io(_) => {
+                Self::Storage(message)
+            }
         }
     }
 }
@@ -242,7 +244,9 @@ impl From<export::Entry> for TimelineEntry {
     fn from(e: export::Entry) -> Self {
         let time_ms = e.time_ms();
         match e {
-            export::Entry::Speech { text, translation, .. } => Self {
+            export::Entry::Speech {
+                text, translation, ..
+            } => Self {
                 kind: TimelineKind::Speech,
                 time_ms,
                 text: Some(text),
@@ -281,14 +285,25 @@ pub enum ExportFormat {
 pub trait TranscriptListener: Send + Sync {
     /// `progress` is `0.0..=1.0` for work on a finished recording, `None`
     /// during live transcription.
-    fn on_transcript_changed(&self, recording_id: String, status: TranscriptStatus, progress: Option<f32>);
+    fn on_transcript_changed(
+        &self,
+        recording_id: String,
+        status: TranscriptStatus,
+        progress: Option<f32>,
+    );
 }
 
 struct ListenerAdapter(Arc<dyn TranscriptListener>);
 
 impl transcription::EngineEvents for ListenerAdapter {
-    fn transcript_changed(&self, id: &str, status: examic_db::TranscriptStatus, progress: Option<f32>) {
-        self.0.on_transcript_changed(id.to_owned(), status.into(), progress);
+    fn transcript_changed(
+        &self,
+        id: &str,
+        status: examic_db::TranscriptStatus,
+        progress: Option<f32>,
+    ) {
+        self.0
+            .on_transcript_changed(id.to_owned(), status.into(), progress);
     }
 }
 
@@ -319,8 +334,9 @@ impl ExamicEngine {
     }
 
     pub fn set_transcript_listener(&self, listener: Option<Arc<dyn TranscriptListener>>) {
-        self.engine
-            .set_events(listener.map(|l| Arc::new(ListenerAdapter(l)) as Arc<dyn transcription::EngineEvents>));
+        self.engine.set_events(
+            listener.map(|l| Arc::new(ListenerAdapter(l)) as Arc<dyn transcription::EngineEvents>),
+        );
     }
 
     /// Starts a recording. Afterwards `NativeAudio.pushPcm` accepts mono
@@ -332,9 +348,9 @@ impl ExamicEngine {
         mode: TranscribeMode,
         translate: bool,
     ) -> Result<Recording> {
-        let (recording, input) = self
-            .engine
-            .start_recording(&title, sample_rate, mode.into(), translate)?;
+        let (recording, input) =
+            self.engine
+                .start_recording(&title, sample_rate, mode.into(), translate)?;
         jni_audio::attach(input);
         Ok(recording.into())
     }
@@ -352,7 +368,12 @@ impl ExamicEngine {
 
     /// All recordings, newest first.
     pub fn recordings(&self) -> Result<Vec<Recording>> {
-        Ok(self.engine.recordings()?.into_iter().map(Into::into).collect())
+        Ok(self
+            .engine
+            .recordings()?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub fn recording(&self, id: String) -> Result<Recording> {
@@ -370,7 +391,12 @@ impl ExamicEngine {
 
     /// Adds a bookmark. With `timestamp_ms` omitted it marks "now" in the
     /// recording in progress.
-    pub fn add_bookmark(&self, recording_id: String, timestamp_ms: Option<i64>, note: Option<String>) -> Result<Bookmark> {
+    pub fn add_bookmark(
+        &self,
+        recording_id: String,
+        timestamp_ms: Option<i64>,
+        note: Option<String>,
+    ) -> Result<Bookmark> {
         Ok(self
             .engine
             .add_bookmark(&recording_id, timestamp_ms, note.as_deref())?
@@ -379,7 +405,12 @@ impl ExamicEngine {
 
     /// Bookmarks of a recording in timeline order.
     pub fn bookmarks(&self, recording_id: String) -> Result<Vec<Bookmark>> {
-        Ok(self.engine.bookmarks(&recording_id)?.into_iter().map(Into::into).collect())
+        Ok(self
+            .engine
+            .bookmarks(&recording_id)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub fn delete_bookmark(&self, bookmark_id: i64) -> Result<()> {
@@ -398,7 +429,11 @@ impl ExamicEngine {
 
     /// Absolute path of a finished recording's Ogg Opus file, for playback.
     pub fn audio_path(&self, recording_id: String) -> Result<String> {
-        Ok(self.engine.audio_path(&recording_id)?.to_string_lossy().into_owned())
+        Ok(self
+            .engine
+            .audio_path(&recording_id)?
+            .to_string_lossy()
+            .into_owned())
     }
 
     /// Queues a finished recording for transcription (replacing any earlier
@@ -414,7 +449,12 @@ impl ExamicEngine {
 
     /// A recording's transcript in timeline order (also while it grows).
     pub fn transcript(&self, recording_id: String) -> Result<Vec<TranscriptSegment>> {
-        Ok(self.engine.transcript(&recording_id)?.into_iter().map(Into::into).collect())
+        Ok(self
+            .engine
+            .transcript(&recording_id)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     /// Progress (`0.0..=1.0`) of work on a finished recording while it runs.
@@ -431,13 +471,26 @@ impl ExamicEngine {
     /// Registers a photo saved at `file` (relative, inside `photo_dir`).
     /// With `timestamp_ms` omitted it is placed at "now" in the recording in
     /// progress.
-    pub fn add_photo(&self, recording_id: String, file: String, timestamp_ms: Option<i64>) -> Result<Photo> {
-        Ok(self.engine.add_photo(&recording_id, &file, timestamp_ms)?.into())
+    pub fn add_photo(
+        &self,
+        recording_id: String,
+        file: String,
+        timestamp_ms: Option<i64>,
+    ) -> Result<Photo> {
+        Ok(self
+            .engine
+            .add_photo(&recording_id, &file, timestamp_ms)?
+            .into())
     }
 
     /// Photos of a recording in timeline order.
     pub fn photos(&self, recording_id: String) -> Result<Vec<Photo>> {
-        Ok(self.engine.photos(&recording_id)?.into_iter().map(Into::into).collect())
+        Ok(self
+            .engine
+            .photos(&recording_id)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub fn delete_photo(&self, photo_id: i64) -> Result<()> {
@@ -445,7 +498,11 @@ impl ExamicEngine {
     }
 
     /// Transcript, bookmarks and photos merged in timeline order.
-    pub fn export_timeline(&self, recording_id: String, include_translation: bool) -> Result<Vec<TimelineEntry>> {
+    pub fn export_timeline(
+        &self,
+        recording_id: String,
+        include_translation: bool,
+    ) -> Result<Vec<TimelineEntry>> {
         Ok(self
             .engine
             .timeline(&recording_id, include_translation)?
@@ -463,9 +520,12 @@ impl ExamicEngine {
         date: String,
         dest_path: String,
     ) -> Result<ExportFormat> {
-        let format = self
-            .engine
-            .export_markdown(&recording_id, include_translation, &date, Path::new(&dest_path))?;
+        let format = self.engine.export_markdown(
+            &recording_id,
+            include_translation,
+            &date,
+            Path::new(&dest_path),
+        )?;
         Ok(match format {
             export::ExportFormat::Markdown => ExportFormat::Markdown,
             export::ExportFormat::Zip => ExportFormat::Zip,

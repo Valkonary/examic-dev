@@ -8,10 +8,10 @@ use examic_audio::{EncodeError, PacketEncoder};
 use ogg::reading::PacketReader;
 
 /// 32 kbit/s VBR mono: transparent for speech, about 14 MB per hour.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "native"))]
 const BITRATE_BPS: i32 = 32_000;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "native"))]
 pub fn new_encoder(sample_rate: u32) -> Result<impl PacketEncoder + 'static, EncodeError> {
     examic_audio::OpusEncoder::new(sample_rate, BITRATE_BPS)
 }
@@ -20,17 +20,17 @@ pub fn new_encoder(sample_rate: u32) -> Result<impl PacketEncoder + 'static, Enc
 /// must not need CMake and a C compiler. The stand-in keeps Opus framing (20 ms
 /// frames, 6.5 ms lookahead); each packet holds just its frame's sample count,
 /// which [`new_decoder`]'s stand-in turns back into that much silence.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", feature = "native")))]
 pub fn new_encoder(sample_rate: u32) -> Result<impl PacketEncoder + 'static, EncodeError> {
     Ok(FramingStub { sample_rate })
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", feature = "native")))]
 struct FramingStub {
     sample_rate: u32,
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", feature = "native")))]
 impl PacketEncoder for FramingStub {
     fn sample_rate(&self) -> u32 {
         self.sample_rate
@@ -59,7 +59,7 @@ trait PacketDecoder {
     fn decode(&mut self, packet: &[u8], out: &mut Vec<f32>) -> io::Result<()>;
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "native"))]
 fn new_decoder(_input_rate: u32) -> io::Result<Box<dyn PacketDecoder>> {
     struct Libopus {
         decoder: opus::Decoder,
@@ -85,7 +85,7 @@ fn new_decoder(_input_rate: u32) -> io::Result<Box<dyn PacketDecoder>> {
     }))
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", feature = "native")))]
 fn new_decoder(input_rate: u32) -> io::Result<Box<dyn PacketDecoder>> {
     struct SilenceStub {
         input_rate: u32,

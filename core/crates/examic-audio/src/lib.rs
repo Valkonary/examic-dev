@@ -17,7 +17,7 @@ pub mod vad;
 pub use ogg_opus::OpusEncoder;
 pub use ogg_opus::{EncodeError, OggOpusWriter, PacketEncoder, stream_duration_ms};
 pub use session::{
-    AudioSink, CaptureError, CaptureSession, DEFAULT_RING_MS, PcmInput, SessionReport, SpeechListener,
-    Telemetry,
+    AudioSink, CaptureError, CaptureSession, DEFAULT_RING_MS, PcmInput, SessionReport,
+    SpeechListener, Telemetry,
 };
 pub use vad::{EnergyVad, SpeechInterval, Vad};

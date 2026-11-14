@@ -16,8 +16,8 @@ use examic_audio::{
     stream_duration_ms,
 };
 use examic_db::{
-    Bookmark, Database, DbError, Photo, Recording, RecordingStatus, TranscribeMode, TranscriptSegment,
-    TranscriptStatus,
+    Bookmark, Database, DbError, Photo, Recording, RecordingStatus, TranscribeMode,
+    TranscriptSegment, TranscriptStatus,
 };
 
 use crate::backends::{Backends, ModelBackends, ModelPaths};
@@ -78,7 +78,11 @@ pub(crate) struct Shared {
 
 impl Shared {
     pub fn notify(&self, id: &str, status: TranscriptStatus, progress: Option<f32>) {
-        let events = self.events.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let events = self
+            .events
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if let Some(events) = events {
             events.transcript_changed(id, status, progress);
         }
@@ -167,7 +171,11 @@ impl Engine {
     }
 
     pub fn set_events(&self, events: Option<Arc<dyn EngineEvents>>) {
-        *self.shared.events.write().unwrap_or_else(|e| e.into_inner()) = events;
+        *self
+            .shared
+            .events
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = events;
     }
 
     pub fn active_recording_id(&self) -> Option<String> {
@@ -194,8 +202,15 @@ impl Engine {
         // The row goes in first: if the app dies right after, recovery finds a
         // row without audio and drops it. The other order could leave an audio
         // file nothing refers to.
-        self.db()
-            .create_recording(&id, title, now_ms(), sample_rate, &audio_file, mode, translate)?;
+        self.db().create_recording(
+            &id,
+            title,
+            now_ms(),
+            sample_rate,
+            &audio_file,
+            mode,
+            translate,
+        )?;
         match self.begin_capture(&id, &path, sample_rate, mode, translate) {
             Ok((input, session)) => {
                 *active = Some(Active {
@@ -441,7 +456,10 @@ impl Engine {
 
     fn ensure_idle_transcript(&self, recording: &Recording) -> Result<()> {
         self.ensure_not_active(&recording.id)?;
-        if matches!(recording.transcript_status, TranscriptStatus::Pending | TranscriptStatus::Running) {
+        if matches!(
+            recording.transcript_status,
+            TranscriptStatus::Pending | TranscriptStatus::Running
+        ) {
             return Err(EngineError::Busy);
         }
         Ok(())
@@ -453,7 +471,8 @@ impl Engine {
         let recording = self.db().recording(id)?;
         self.ensure_idle_transcript(&recording)?;
         self.db().set_translate(id, translate)?;
-        self.db().set_transcript_status(id, TranscriptStatus::Pending)?;
+        self.db()
+            .set_transcript_status(id, TranscriptStatus::Pending)?;
         self.shared.notify(id, TranscriptStatus::Pending, None);
         self.jobs.submit(Job::Transcribe(id.to_owned()));
         Ok(())
@@ -467,7 +486,8 @@ impl Engine {
             return Err(EngineError::NoTranscript);
         }
         self.db().set_translate(id, true)?;
-        self.db().set_transcript_status(id, TranscriptStatus::Pending)?;
+        self.db()
+            .set_transcript_status(id, TranscriptStatus::Pending)?;
         self.shared.notify(id, TranscriptStatus::Pending, None);
         self.jobs.submit(Job::Translate(id.to_owned()));
         Ok(())
@@ -497,12 +517,21 @@ impl Engine {
     /// directory, inside [`photo_dir`](Self::photo_dir)). Without
     /// `timestamp_ms` it is placed at the current position of the recording
     /// in progress.
-    pub fn add_photo(&self, recording_id: &str, file: &str, timestamp_ms: Option<i64>) -> Result<Photo> {
+    pub fn add_photo(
+        &self,
+        recording_id: &str,
+        file: &str,
+        timestamp_ms: Option<i64>,
+    ) -> Result<Photo> {
         let relative = Path::new(file);
         let inside = relative.starts_with(Path::new(PHOTOS_DIR).join(recording_id))
-            && relative.components().all(|c| matches!(c, Component::Normal(_)));
+            && relative
+                .components()
+                .all(|c| matches!(c, Component::Normal(_)));
         if !inside {
-            return Err(EngineError::InvalidArgument(format!("{file} is not in the photo directory")));
+            return Err(EngineError::InvalidArgument(format!(
+                "{file} is not in the photo directory"
+            )));
         }
         if !self.shared.data_dir.join(relative).is_file() {
             return Err(EngineError::NotFound);
@@ -558,7 +587,12 @@ impl Engine {
             .db()
             .photos(id)?
             .iter()
-            .map(|p| (export::photo_name(&p.file), self.shared.data_dir.join(&p.file)))
+            .map(|p| {
+                (
+                    export::photo_name(&p.file),
+                    self.shared.data_dir.join(&p.file),
+                )
+            })
             .collect();
         Ok(export::write_export(&markdown, &photos, dest)?)
     }
@@ -732,7 +766,9 @@ mod tests {
     }
 
     fn record(engine: &Engine, title: &str, seconds: u32) -> Recording {
-        let (_, mut input) = engine.start_recording(title, RATE, TranscribeMode::Off, false).unwrap();
+        let (_, mut input) = engine
+            .start_recording(title, RATE, TranscribeMode::Off, false)
+            .unwrap();
         feed_seconds(&mut input, seconds);
         drop(input);
         engine.stop_recording().unwrap()
@@ -740,13 +776,23 @@ mod tests {
 
     /// Waits for transcription work on `id` to end.
     fn settled(engine: &Engine, id: &str) -> Recording {
-        let deadline = Instant::now() + Duration::from_secs(20);
+        settled_within(engine, id, Duration::from_secs(20))
+    }
+
+    fn settled_within(engine: &Engine, id: &str, limit: Duration) -> Recording {
+        let deadline = Instant::now() + limit;
         loop {
             let rec = engine.recording(id).unwrap();
-            if !matches!(rec.transcript_status, TranscriptStatus::Pending | TranscriptStatus::Running) {
+            if !matches!(
+                rec.transcript_status,
+                TranscriptStatus::Pending | TranscriptStatus::Running
+            ) {
                 return rec;
             }
-            assert!(Instant::now() < deadline, "transcription never finished: {rec:?}");
+            assert!(
+                Instant::now() < deadline,
+                "transcription never finished: {rec:?}"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }
@@ -755,9 +801,14 @@ mod tests {
     fn records_a_plain_ogg_opus_file() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        let (started, mut input) = engine.start_recording("Standup", RATE, TranscribeMode::Off, false).unwrap();
+        let (started, mut input) = engine
+            .start_recording("Standup", RATE, TranscribeMode::Off, false)
+            .unwrap();
         assert_eq!(started.status, RecordingStatus::Recording);
-        assert_eq!(engine.active_recording_id().as_deref(), Some(started.id.as_str()));
+        assert_eq!(
+            engine.active_recording_id().as_deref(),
+            Some(started.id.as_str())
+        );
         feed_seconds(&mut input, 3);
         assert_eq!(input.telemetry().position_ms(), 3000);
         drop(input);
@@ -781,13 +832,18 @@ mod tests {
     fn only_one_recording_at_a_time() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        let _first = engine.start_recording("a", RATE, TranscribeMode::Off, false).unwrap();
+        let _first = engine
+            .start_recording("a", RATE, TranscribeMode::Off, false)
+            .unwrap();
         assert!(matches!(
             engine.start_recording("b", RATE, TranscribeMode::Off, false),
             Err(EngineError::AlreadyRecording)
         ));
         engine.stop_recording().unwrap();
-        assert!(matches!(engine.stop_recording(), Err(EngineError::NotRecording)));
+        assert!(matches!(
+            engine.stop_recording(),
+            Err(EngineError::NotRecording)
+        ));
         assert_eq!(engine.recordings().unwrap().len(), 1);
     }
 
@@ -795,7 +851,11 @@ mod tests {
     fn a_rejected_start_leaves_nothing_behind() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        assert!(engine.start_recording("bad rate", 44_100, TranscribeMode::Live, false).is_err());
+        assert!(
+            engine
+                .start_recording("bad rate", 44_100, TranscribeMode::Live, false)
+                .is_err()
+        );
         assert!(engine.recordings().unwrap().is_empty());
         assert_eq!(fs::read_dir(dir.0.join(RECORDINGS_DIR)).unwrap().count(), 0);
         assert_eq!(engine.active_recording_id(), None);
@@ -805,11 +865,15 @@ mod tests {
     fn live_bookmarks_land_on_the_recording_timeline() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        let (rec, mut input) = engine.start_recording("Lecture", RATE, TranscribeMode::Off, false).unwrap();
+        let (rec, mut input) = engine
+            .start_recording("Lecture", RATE, TranscribeMode::Off, false)
+            .unwrap();
         feed_seconds(&mut input, 2);
         let flag = engine.add_bookmark(&rec.id, None, None).unwrap();
         feed_seconds(&mut input, 1);
-        let note = engine.add_bookmark(&rec.id, None, Some("  exam hint  ")).unwrap();
+        let note = engine
+            .add_bookmark(&rec.id, None, Some("  exam hint  "))
+            .unwrap();
         let blank = engine.add_bookmark(&rec.id, None, Some("   ")).unwrap();
         drop(input);
         engine.stop_recording().unwrap();
@@ -820,7 +884,10 @@ mod tests {
         assert_eq!(engine.recording(&rec.id).unwrap().bookmark_count, 3);
 
         // Once finished, "now" has no meaning; an explicit time still works.
-        assert!(matches!(engine.add_bookmark(&rec.id, None, None), Err(EngineError::NotRecording)));
+        assert!(matches!(
+            engine.add_bookmark(&rec.id, None, None),
+            Err(EngineError::NotRecording)
+        ));
         let later = engine.add_bookmark(&rec.id, Some(500), None).unwrap();
         assert_eq!(engine.bookmarks(&rec.id).unwrap()[0].id, later.id);
     }
@@ -829,10 +896,21 @@ mod tests {
     fn the_recording_in_progress_cannot_be_played_deleted_or_transcribed() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        let (rec, _input) = engine.start_recording("busy", RATE, TranscribeMode::Off, false).unwrap();
-        assert!(matches!(engine.audio_path(&rec.id), Err(EngineError::StillRecording)));
-        assert!(matches!(engine.delete_recording(&rec.id), Err(EngineError::StillRecording)));
-        assert!(matches!(engine.transcribe_recording(&rec.id, false), Err(EngineError::StillRecording)));
+        let (rec, _input) = engine
+            .start_recording("busy", RATE, TranscribeMode::Off, false)
+            .unwrap();
+        assert!(matches!(
+            engine.audio_path(&rec.id),
+            Err(EngineError::StillRecording)
+        ));
+        assert!(matches!(
+            engine.delete_recording(&rec.id),
+            Err(EngineError::StillRecording)
+        ));
+        assert!(matches!(
+            engine.transcribe_recording(&rec.id, false),
+            Err(EngineError::StillRecording)
+        ));
         engine.stop_recording().unwrap();
     }
 
@@ -854,15 +932,23 @@ mod tests {
             .collect();
         assert_eq!(files, [keep.audio_file]);
         assert!(!dir.0.join(&photo_dir).exists());
-        assert!(matches!(engine.recording(&gone.id), Err(EngineError::NotFound)));
-        assert!(matches!(engine.audio_path(&gone.id), Err(EngineError::NotFound)));
+        assert!(matches!(
+            engine.recording(&gone.id),
+            Err(EngineError::NotFound)
+        ));
+        assert!(matches!(
+            engine.audio_path(&gone.id),
+            Err(EngineError::NotFound)
+        ));
     }
 
     /// Records `seconds` of audio and "crashes": the engine is leaked once
     /// most of it is on disk, so nothing is finished or sealed.
     fn record_and_crash(dir: &TempDir, mode: TranscribeMode, seconds: u32) -> (String, PathBuf) {
         let engine = open(dir);
-        let (rec, mut input) = engine.start_recording("Interrupted", RATE, mode, false).unwrap();
+        let (rec, mut input) = engine
+            .start_recording("Interrupted", RATE, mode, false)
+            .unwrap();
         feed_seconds(&mut input, seconds);
         let path = dir.0.join(RECORDINGS_DIR).join(&rec.audio_file);
         while fs::metadata(&path).unwrap().len() < 4096 {
@@ -892,9 +978,21 @@ mod tests {
         let rec = settled(&engine, &id);
         assert_eq!(rec.transcript_status, TranscriptStatus::Done);
         // No speech intervals after a crash: the whole length is covered.
-        let text: Vec<_> = engine.transcript(&id).unwrap().into_iter().map(|s| s.text_ru).collect();
-        let covered: i64 = text.iter().map(|t| t.trim_end_matches(" мс.").parse::<i64>().unwrap()).sum();
-        assert!((rec.duration_ms - covered).abs() <= 40, "{covered} of {}", rec.duration_ms);
+        let text: Vec<_> = engine
+            .transcript(&id)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.text_ru)
+            .collect();
+        let covered: i64 = text
+            .iter()
+            .map(|t| t.trim_end_matches(" мс.").parse::<i64>().unwrap())
+            .sum();
+        assert!(
+            (rec.duration_ms - covered).abs() <= 40,
+            "{covered} of {}",
+            rec.duration_ms
+        );
     }
 
     #[test]
@@ -902,7 +1000,9 @@ mod tests {
         let dir = TempDir::new();
         {
             let engine = open(&dir);
-            let started = engine.start_recording("Ghost", RATE, TranscribeMode::Off, false).unwrap();
+            let started = engine
+                .start_recording("Ghost", RATE, TranscribeMode::Off, false)
+                .unwrap();
             std::mem::forget(started);
             std::mem::forget(engine);
         }
@@ -925,11 +1025,18 @@ mod tests {
             let name = format!("{DATABASE_FILE}{suffix}");
             let _ = fs::copy(dir.0.join(&name), dir2.0.join(&name));
         }
-        fs::write(dir2.0.join(RECORDINGS_DIR).join(path.file_name().unwrap()), bytes).unwrap();
+        fs::write(
+            dir2.0.join(RECORDINGS_DIR).join(path.file_name().unwrap()),
+            bytes,
+        )
+        .unwrap();
 
         let engine = open(&dir2);
         let rec = engine.recording(&id).unwrap();
-        assert_eq!((rec.status, rec.duration_ms), (RecordingStatus::Recovered, 0));
+        assert_eq!(
+            (rec.status, rec.duration_ms),
+            (RecordingStatus::Recovered, 0)
+        );
         assert!(dir2.0.join(RECORDINGS_DIR).join(&rec.audio_file).exists());
     }
 
@@ -938,7 +1045,10 @@ mod tests {
         let dir = TempDir::new();
         let id = record(&open(&dir), "Kept", 1).id;
         let engine = open(&dir);
-        assert_eq!(engine.recording(&id).unwrap().status, RecordingStatus::Ready);
+        assert_eq!(
+            engine.recording(&id).unwrap().status,
+            RecordingStatus::Ready
+        );
         engine.rename_recording(&id, "Renamed").unwrap();
         assert_eq!(engine.recordings().unwrap()[0].title, "Renamed");
     }
@@ -949,7 +1059,9 @@ mod tests {
         let engine = open(&dir);
         let events = Arc::new(EventLog::default());
         engine.set_events(Some(events.clone()));
-        let (rec, mut input) = engine.start_recording("After", RATE, TranscribeMode::After, true).unwrap();
+        let (rec, mut input) = engine
+            .start_recording("After", RATE, TranscribeMode::After, true)
+            .unwrap();
         assert_eq!(rec.transcript_status, TranscriptStatus::Pending);
         feed(&mut input, &speech_signal(6.0, &[(1.0, 2.0), (3.5, 5.0)]));
         drop(input);
@@ -962,7 +1074,10 @@ mod tests {
         assert_eq!(speech.len(), 2, "{speech:?}");
         // Both intervals fit one window, which spans them padded.
         assert_eq!(transcript.len(), 1, "{transcript:?}");
-        assert_eq!(transcript[0].start_ms, speech[0].0 - examic_asr::WINDOW_PAD_MS);
+        assert_eq!(
+            transcript[0].start_ms,
+            speech[0].0 - examic_asr::WINDOW_PAD_MS
+        );
         let en = transcript[0].text_en.as_deref().unwrap();
         assert_eq!(en, format!("EN[{}]", transcript[0].text_ru));
         assert_eq!(engine.transcript_progress(&rec.id), None);
@@ -976,7 +1091,9 @@ mod tests {
     fn live_mode_transcribes_each_stretch_of_speech_while_recording() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        let (rec, mut input) = engine.start_recording("Live", RATE, TranscribeMode::Live, false).unwrap();
+        let (rec, mut input) = engine
+            .start_recording("Live", RATE, TranscribeMode::Live, false)
+            .unwrap();
         assert_eq!(rec.transcript_status, TranscriptStatus::Running);
         feed(&mut input, &speech_signal(6.0, &[(1.0, 2.0), (3.5, 5.0)]));
         // The first stretch is transcribed before the recording ends.
@@ -1011,7 +1128,10 @@ mod tests {
             drop(input);
             let rec = engine.stop_recording().unwrap();
             assert_eq!(rec.status, RecordingStatus::Ready);
-            assert_eq!(settled(&engine, &rec.id).transcript_status, TranscriptStatus::Failed);
+            assert_eq!(
+                settled(&engine, &rec.id).transcript_status,
+                TranscriptStatus::Failed
+            );
         }
     }
 
@@ -1020,7 +1140,10 @@ mod tests {
         let dir = TempDir::new();
         let engine = open(&dir);
         let rec = record(&engine, "Off", 2);
-        assert!(matches!(engine.translate_recording(&rec.id), Err(EngineError::NoTranscript)));
+        assert!(matches!(
+            engine.translate_recording(&rec.id),
+            Err(EngineError::NoTranscript)
+        ));
         engine.transcribe_recording(&rec.id, false).unwrap();
         settled(&engine, &rec.id);
         let transcript = engine.transcript(&rec.id).unwrap();
@@ -1030,14 +1153,22 @@ mod tests {
         engine.translate_recording(&rec.id).unwrap();
         let rec = settled(&engine, &rec.id);
         assert!(rec.translate);
-        assert!(engine.transcript(&rec.id).unwrap().iter().all(|s| s.text_en.is_some()));
+        assert!(
+            engine
+                .transcript(&rec.id)
+                .unwrap()
+                .iter()
+                .all(|s| s.text_en.is_some())
+        );
     }
 
     #[test]
     fn photos_are_timestamped_like_bookmarks_and_stay_in_their_folder() {
         let dir = TempDir::new();
         let engine = open(&dir);
-        let (rec, mut input) = engine.start_recording("Board", RATE, TranscribeMode::Off, false).unwrap();
+        let (rec, mut input) = engine
+            .start_recording("Board", RATE, TranscribeMode::Off, false)
+            .unwrap();
         feed_seconds(&mut input, 2);
         let folder = engine.photo_dir(&rec.id).unwrap();
         let file = format!("{folder}/1.jpg");
@@ -1051,7 +1182,10 @@ mod tests {
             engine.add_photo(&rec.id, &format!("{folder}/../../examic.db"), Some(0)),
             Err(EngineError::InvalidArgument(_))
         ));
-        assert!(matches!(engine.add_photo(&rec.id, &format!("{folder}/none.jpg"), Some(0)), Err(EngineError::NotFound)));
+        assert!(matches!(
+            engine.add_photo(&rec.id, &format!("{folder}/none.jpg"), Some(0)),
+            Err(EngineError::NotFound)
+        ));
         assert_eq!(engine.recording(&rec.id).unwrap().photo_count, 1);
         engine.delete_photo(now.id).unwrap();
         assert!(!dir.0.join(&file).exists());
@@ -1065,23 +1199,145 @@ mod tests {
         let rec = record(&engine, "Export", 2);
         engine.transcribe_recording(&rec.id, true).unwrap();
         settled(&engine, &rec.id);
-        engine.add_bookmark(&rec.id, Some(100), Some("start")).unwrap();
+        engine
+            .add_bookmark(&rec.id, Some(100), Some("start"))
+            .unwrap();
 
         let md = dir.0.join("out.md");
-        assert_eq!(engine.export_markdown(&rec.id, true, "today", &md).unwrap(), ExportFormat::Markdown);
+        assert_eq!(
+            engine.export_markdown(&rec.id, true, "today", &md).unwrap(),
+            ExportFormat::Markdown
+        );
         let text = fs::read_to_string(&md).unwrap();
         assert!(text.starts_with("# Export\n"), "{text}");
         assert!(text.contains("🔖 **[0:00]** start"));
         assert!(text.contains("> EN: EN["));
         let without = dir.0.join("plain.md");
-        engine.export_markdown(&rec.id, false, "today", &without).unwrap();
+        engine
+            .export_markdown(&rec.id, false, "today", &without)
+            .unwrap();
         assert!(!fs::read_to_string(&without).unwrap().contains("EN:"));
 
         let file = format!("{}/p.jpg", engine.photo_dir(&rec.id).unwrap());
         fs::write(dir.0.join(&file), b"jpeg").unwrap();
         engine.add_photo(&rec.id, &file, Some(1500)).unwrap();
         let zip = dir.0.join("out.zip");
-        assert_eq!(engine.export_markdown(&rec.id, true, "today", &zip).unwrap(), ExportFormat::Zip);
+        assert_eq!(
+            engine
+                .export_markdown(&rec.id, true, "today", &zip)
+                .unwrap(),
+            ExportFormat::Zip
+        );
         assert_eq!(&fs::read(&zip).unwrap()[..2], b"PK");
+    }
+
+    /// The whole pipeline with the real codec and models, as on a phone:
+    /// Russian speech recorded through libopus, cut by the voice detector,
+    /// transcribed by GigaAM and translated by Opus-MT, live and after
+    /// recording. Run with
+    ///
+    ///     EXAMIC_ASR_MODEL=.../gigaam-v3-e2e-ctc-Q8_0.gguf \
+    ///     EXAMIC_MT_MODEL_DIR=.../opus-mt-ru-en ORT_DYLIB_PATH=.../libonnxruntime.so \
+    ///     EXAMIC_FLEURS_DIR=.../fleurs/ru_ru \
+    ///     cargo test --release -p examic-ffi --features native -- --ignored --nocapture
+    #[cfg(feature = "native")]
+    #[test]
+    #[ignore = "needs the models and FLEURS audio; see the doc comment"]
+    fn end_to_end_with_the_real_models() {
+        let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set"));
+        let fleurs = PathBuf::from(var("EXAMIC_FLEURS_DIR"));
+        let tsv = fs::read_to_string(fleurs.join("dev.tsv")).unwrap();
+        let mut pcm: Vec<i16> = Vec::new();
+        let mut reference = String::new();
+        let mut seed = 1u32;
+        let mut quiet = |n: usize, pcm: &mut Vec<i16>| {
+            // Room noise at about -60 dBFS rather than digital silence.
+            for _ in 0..n {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                pcm.push(((seed >> 16) as i16) / 1024);
+            }
+        };
+        for line in tsv.lines().step_by(17).take(8) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let mut wav = hound::WavReader::open(fleurs.join("dev").join(fields[1])).unwrap();
+            assert_eq!(wav.spec().sample_rate, 16_000);
+            quiet(24_000, &mut pcm);
+            pcm.extend(wav.samples::<f32>().map(|s| (s.unwrap() * 32767.0) as i16));
+            reference.push_str(fields[2]);
+            reference.push(' ');
+        }
+        quiet(24_000, &mut pcm);
+
+        let words = |text: &str| -> Vec<String> {
+            text.to_lowercase()
+                .replace('ё', "е")
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+                .collect::<String>()
+                .split_whitespace()
+                .map(String::from)
+                .collect()
+        };
+        let wer = |hypothesis: &str| -> f64 {
+            let (r, h) = (words(&reference), words(hypothesis));
+            let mut row: Vec<usize> = (0..=h.len()).collect();
+            for i in 1..=r.len() {
+                let mut diagonal = row[0];
+                row[0] = i;
+                for j in 1..=h.len() {
+                    let above = row[j];
+                    row[j] = (row[j] + 1)
+                        .min(row[j - 1] + 1)
+                        .min(diagonal + usize::from(r[i - 1] != h[j - 1]));
+                    diagonal = above;
+                }
+            }
+            row[h.len()] as f64 / r.len() as f64
+        };
+
+        let dir = TempDir::new();
+        let engine = Engine::open(&dir.0).unwrap();
+        engine.set_models(ModelPaths {
+            asr_model: Some(var("EXAMIC_ASR_MODEL").into()),
+            mt_dir: Some(var("EXAMIC_MT_MODEL_DIR").into()),
+        });
+        for mode in [TranscribeMode::Live, TranscribeMode::After] {
+            let started = Instant::now();
+            let (rec, mut input) = engine
+                .start_recording("FLEURS", 16_000, mode, true)
+                .unwrap();
+            feed(&mut input, &pcm);
+            drop(input);
+            engine.stop_recording().unwrap();
+            let rec = settled_within(&engine, &rec.id, Duration::from_secs(600));
+            let transcript = engine.transcript(&rec.id).unwrap();
+            let text: Vec<&str> = transcript.iter().map(|s| s.text_ru.as_str()).collect();
+            let error_rate = wer(&text.join(" "));
+            println!(
+                "{mode:?}: {} s of audio, {} segments, WER {:.1}%, done after {:.1} s",
+                rec.duration_ms / 1000,
+                transcript.len(),
+                error_rate * 100.0,
+                started.elapsed().as_secs_f64()
+            );
+            for s in transcript.iter().take(4) {
+                println!(
+                    "  [{}] {}\n      EN: {}",
+                    export::clock(s.start_ms),
+                    s.text_ru,
+                    s.text_en.as_deref().unwrap_or("-")
+                );
+            }
+            assert_eq!(rec.transcript_status, TranscriptStatus::Done);
+            assert!(error_rate < 0.15, "WER {error_rate}");
+            assert!(
+                transcript
+                    .iter()
+                    .all(|s| s.text_en.as_deref().is_some_and(|t| !t.is_empty()))
+            );
+            for pair in transcript.windows(2) {
+                assert!(pair[0].start_ms < pair[1].start_ms);
+            }
+        }
     }
 }

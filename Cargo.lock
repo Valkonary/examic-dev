@@ -324,6 +324,7 @@ dependencies = [
  "examic-audio",
  "examic-db",
  "examic-mt",
+ "hound",
  "jni-sys",
  "libc",
  "log",

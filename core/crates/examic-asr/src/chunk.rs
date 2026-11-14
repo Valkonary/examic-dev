@@ -90,8 +90,11 @@ pub fn plan_windows(speech: &[(i64, i64)], duration_ms: i64) -> Vec<Window> {
 /// Cuts speech out of a live 16 kHz stream as it is being recorded.
 ///
 /// Fed with every sample of the recording (in order, starting at zero) and
-/// with each speech interval once the detector has closed it, it returns the
-/// audio of each interval, padded, ready for the model. Audio that cannot
+/// with each speech interval once the detector has closed it, it hands out
+/// the padded audio of that speech, ready for the model. Intervals that follow
+/// each other closely are held back and merged, because the detector also
+/// closes intervals at short pauses inside a sentence, and the model
+/// transcribes a whole sentence better than its pieces. Audio that cannot
 /// belong to speech any more is dropped, so memory stays bounded however long
 /// the recording runs.
 pub struct LiveChunker {
@@ -100,11 +103,17 @@ pub struct LiveChunker {
     buffer_start: usize,
     /// Nothing before this sample is handed out again.
     emitted_until: usize,
+    /// Closed intervals not yet handed out, merged: `(start_ms, end_ms)`.
+    pending: Option<(i64, i64)>,
 }
 
 /// While no speech is in progress, this much recent audio is kept: enough to
 /// cover the detector's onset delay and the padding before an interval.
 const IDLE_KEEP_MS: i64 = 2_000;
+/// Held-back speech is handed out once it is this long...
+const LIVE_MIN_MS: i64 = 15_000;
+/// ...or once the silence after it has lasted this long.
+const LIVE_PAUSE_MS: i64 = 1_200;
 
 impl Default for LiveChunker {
     fn default() -> Self {
@@ -118,6 +127,7 @@ impl LiveChunker {
             buffer: Vec::new(),
             buffer_start: 0,
             emitted_until: 0,
+            pending: None,
         }
     }
 
@@ -128,28 +138,59 @@ impl LiveChunker {
     /// Appends audio. `speech_open` says whether the detector was inside a
     /// speech interval when this audio began; an interval that closes during
     /// it is reported through [`speech`](Self::speech) right after this call.
-    /// Returns a window if speech has gone on for so long that it is
-    /// transcribed in parts.
+    /// Returns a window when held-back speech is due, or when speech has gone
+    /// on for so long that it is transcribed in parts.
     pub fn push(&mut self, pcm: &[f32], speech_open: bool) -> Option<(Window, Vec<f32>)> {
         self.buffer.extend_from_slice(pcm);
         if !speech_open {
-            let keep_from = self
-                .end()
-                .saturating_sub(ms_to_samples(IDLE_KEEP_MS))
-                .max(self.buffer_start);
-            self.drop_before(keep_from);
+            let mut keep_from = self.end().saturating_sub(ms_to_samples(IDLE_KEEP_MS));
+            if let Some((start_ms, end_ms)) = self.pending {
+                if samples_to_ms(self.end()) - end_ms >= LIVE_PAUSE_MS {
+                    return self.flush();
+                }
+                keep_from = keep_from.min(ms_to_samples(start_ms - WINDOW_PAD_MS));
+            }
+            self.drop_before(keep_from.max(self.buffer_start));
             return None;
         }
         let from = self.emitted_until.max(self.buffer_start);
         if self.end() - from >= ms_to_samples(MAX_WINDOW_MS) {
+            self.pending = None;
             let end = self.end();
             return Some(self.take(from, end));
         }
         None
     }
 
-    /// The detector closed a speech interval. Returns its audio.
+    /// The detector closed a speech interval. Returns audio if held-back
+    /// speech is now long enough to hand out.
     pub fn speech(&mut self, start_ms: i64, end_ms: i64) -> Option<(Window, Vec<f32>)> {
+        let mut ready = None;
+        self.pending = match self.pending {
+            Some((first, _)) if end_ms - first <= MAX_WINDOW_MS => Some((first, end_ms)),
+            Some(_) => {
+                ready = self.flush();
+                Some((start_ms, end_ms))
+            }
+            None => Some((start_ms, end_ms)),
+        };
+        if ready.is_none()
+            && self
+                .pending
+                .is_some_and(|(first, last)| last - first >= LIVE_MIN_MS)
+        {
+            ready = self.flush();
+        }
+        ready
+    }
+
+    /// The recording has ended: hands out whatever speech is held back.
+    pub fn finish(&mut self) -> Option<(Window, Vec<f32>)> {
+        self.flush()
+    }
+
+    fn flush(&mut self) -> Option<(Window, Vec<f32>)> {
+        let (start_ms, end_ms) = self.pending.take()?;
         let start = ms_to_samples(start_ms - WINDOW_PAD_MS)
             .max(self.emitted_until)
             .max(self.buffer_start);
@@ -178,7 +219,9 @@ impl LiveChunker {
     }
 
     fn drop_before(&mut self, sample: usize) {
-        let n = sample.saturating_sub(self.buffer_start).min(self.buffer.len());
+        let n = sample
+            .saturating_sub(self.buffer_start)
+            .min(self.buffer.len());
         if n > 0 {
             self.buffer.drain(..n);
             self.buffer_start += n;
@@ -201,7 +244,12 @@ mod tests {
 
     #[test]
     fn groups_nearby_speech_into_windows_of_at_most_thirty_seconds() {
-        let speech = [(1_000, 5_000), (6_000, 20_000), (21_000, 29_000), (40_000, 45_000)];
+        let speech = [
+            (1_000, 5_000),
+            (6_000, 20_000),
+            (21_000, 29_000),
+            (40_000, 45_000),
+        ];
         let windows = plan_windows(&speech, 60_000);
         assert_eq!(windows, [w(800, 29_200), w(39_800, 45_200)]);
         for win in &windows {
@@ -251,8 +299,10 @@ mod tests {
         // Speech from 3.0 s to 4.5 s; the detector closes it 400 ms later.
         assert!(chunker.push(&timeline(3_000, 4_400), true).is_none());
         assert!(chunker.push(&timeline(4_400, 4_900), true).is_none());
-        let (window, pcm) = chunker.speech(3_000, 4_500).unwrap();
-        assert!(chunker.push(&timeline(4_900, 9_000), false).is_none());
+        // Short, so it is held back until the pause after it is long enough.
+        assert!(chunker.speech(3_000, 4_500).is_none());
+        assert!(chunker.push(&timeline(4_900, 5_600), false).is_none());
+        let (window, pcm) = chunker.push(&timeline(5_600, 5_800), false).unwrap();
         assert_eq!(window, w(2_800, 4_700));
         assert_eq!(pcm.first().copied(), Some(2_800.0));
         assert_eq!(pcm.last().copied(), Some(4_699.0));
@@ -266,7 +316,50 @@ mod tests {
             chunker.push(&timeline(s * 1000, (s + 1) * 1000), false);
         }
         assert!(chunker.buffered_samples() <= ms_to_samples(IDLE_KEEP_MS));
-        assert!(chunker.speech(0, 500).is_none(), "long gone");
+        assert!(chunker.speech(0, 500).is_none());
+        assert!(chunker.finish().is_none(), "long gone");
+    }
+
+    #[test]
+    fn pieces_of_a_sentence_are_merged_into_one_window() {
+        let mut chunker = LiveChunker::new();
+        chunker.push(&timeline(0, 1_000), false);
+        // Three pieces with short pauses are held back...
+        chunker.push(&timeline(1_000, 3_500), true);
+        assert!(chunker.speech(1_000, 3_000).is_none());
+        chunker.push(&timeline(3_500, 5_800), true);
+        assert!(chunker.speech(3_600, 5_300).is_none());
+        chunker.push(&timeline(5_800, 7_900), true);
+        assert!(chunker.speech(5_900, 7_400).is_none());
+        // ...until a real pause follows.
+        assert!(chunker.push(&timeline(7_900, 8_500), false).is_none());
+        let (window, pcm) = chunker.push(&timeline(8_500, 8_700), false).unwrap();
+        assert_eq!(window, w(800, 7_600));
+        assert_eq!(pcm[0], 800.0);
+        // A last short piece comes out when the recording ends.
+        chunker.push(&timeline(8_700, 10_000), true);
+        assert!(chunker.speech(9_000, 9_500).is_none());
+        let (last, _) = chunker.finish().unwrap();
+        assert_eq!(last, w(8_800, 9_700));
+    }
+
+    #[test]
+    fn long_runs_of_speech_come_out_without_waiting_for_a_pause() {
+        let mut chunker = LiveChunker::new();
+        let mut out = None;
+        for s in 0..20 {
+            chunker.push(&timeline(s * 1000, (s + 1) * 1000), true);
+            // A short gap every second second, never long enough to flush.
+            if s % 2 == 1 {
+                out = out.or(chunker.speech((s - 1) * 1000, s * 1000 + 500));
+            }
+        }
+        let (window, _) = out.unwrap();
+        assert_eq!(window.start_ms, 0);
+        assert!(
+            window.end_ms >= 15_000 && window.end_ms <= 17_000,
+            "{window:?}"
+        );
     }
 
     #[test]
@@ -282,19 +375,22 @@ mod tests {
         assert_eq!(windows, [w(0, 30_000), w(30_000, 60_000)]);
         // When the interval finally closes, only the rest comes out.
         let (last, pcm) = chunker.speech(0, 70_000).unwrap();
+        assert!(chunker.finish().is_none());
         assert_eq!(last, w(60_000, 70_000));
         assert_eq!(pcm[0], 60_000.0);
     }
 
     #[test]
-    fn consecutive_intervals_do_not_share_audio() {
+    fn consecutive_windows_do_not_share_audio() {
         let mut chunker = LiveChunker::new();
         chunker.push(&timeline(0, 2_000), true);
-        let (a, _) = chunker.speech(500, 1_000).unwrap();
-        chunker.push(&timeline(2_000, 3_000), true);
-        let (b, pcm) = chunker.speech(1_100, 2_500).unwrap();
+        assert!(chunker.speech(500, 1_000).is_none());
+        let (a, _) = chunker.push(&timeline(2_000, 2_300), false).unwrap();
+        chunker.push(&timeline(2_300, 9_000), true);
+        assert!(chunker.speech(2_300, 8_500).is_none());
+        let (b, pcm) = chunker.finish().unwrap();
         assert_eq!(a, w(300, 1_200));
-        assert_eq!(b, w(1_200, 2_700));
-        assert_eq!(pcm[0], 1_200.0);
+        assert_eq!(b, w(2_100, 8_700));
+        assert_eq!(pcm[0], 2_100.0);
     }
 }

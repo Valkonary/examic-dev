@@ -46,7 +46,9 @@ fn edit_distance(a: &[String], b: &[String]) -> usize {
         row[0] = i;
         for j in 1..=b.len() {
             let above = row[j];
-            row[j] = (row[j] + 1).min(row[j - 1] + 1).min(diagonal + usize::from(a[i - 1] != b[j - 1]));
+            row[j] = (row[j] + 1)
+                .min(row[j - 1] + 1)
+                .min(diagonal + usize::from(a[i - 1] != b[j - 1]));
             diagonal = above;
         }
     }
@@ -75,11 +77,19 @@ fn main() {
         let segments = asr.transcribe(&pcm).expect("transcribe");
         busy += t.elapsed().as_secs_f64();
         audio_ms += samples_to_ms(pcm.len());
-        let hypothesis: String = segments.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
+        let hypothesis: String = segments
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
         let (reference, hypothesis_words) = (words(fields[2]), words(&hypothesis));
         errors += edit_distance(&reference, &hypothesis_words);
         total += reference.len();
-        println!("REF {}\nHYP {hypothesis}  [{} segment(s)]\n", fields[2], segments.len());
+        println!(
+            "REF {}\nHYP {hypothesis}  [{} segment(s)]\n",
+            fields[2],
+            segments.len()
+        );
 
         // The long recording: this clip, then 3 s of silence.
         let start = samples_to_ms(long.len());
@@ -118,7 +128,11 @@ fn main() {
     // Every segment must fall inside a clip, not in the silences between.
     let misplaced = segments
         .iter()
-        .filter(|s| !speech.iter().any(|&(a, b)| s.start_ms >= a - 300 && s.end_ms <= b + 300))
+        .filter(|s| {
+            !speech
+                .iter()
+                .any(|&(a, b)| s.start_ms >= a - 300 && s.end_ms <= b + 300)
+        })
         .count();
     println!("segments outside their clip: {misplaced}");
 }

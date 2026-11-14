@@ -19,7 +19,7 @@ pub trait Backends: Send + Sync + 'static {
 
 /// Model locations, set once the app has unpacked its bundled models.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "android", feature = "native")), allow(dead_code))]
 pub struct ModelPaths {
     /// The GigaAM GGUF file.
     pub asr_model: Option<PathBuf>,
@@ -32,7 +32,7 @@ pub struct ModelBackends {
     paths: Mutex<ModelPaths>,
     /// Loaded once and shared: the weights are memory-mapped and every
     /// transcriber is a session on the same model.
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", feature = "native"))]
     asr: Mutex<Option<examic_asr::GigaAm>>,
 }
 
@@ -43,13 +43,13 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl ModelBackends {
     pub fn set_paths(&self, paths: ModelPaths) {
         *lock(&self.paths) = paths;
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", feature = "native"))]
         {
             *lock(&self.asr) = None;
         }
     }
 
-    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "android", feature = "native")), allow(dead_code))]
     pub fn paths(&self) -> ModelPaths {
         lock(&self.paths).clone()
     }
@@ -57,7 +57,7 @@ impl ModelBackends {
 
 /// CPU threads for model work: leave one core to the rest of the phone, and
 /// beyond four the gain on phone cores is small.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "native"))]
 fn threads(live: bool) -> usize {
     let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
     if live {
@@ -67,7 +67,7 @@ fn threads(live: bool) -> usize {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "native"))]
 impl Backends for ModelBackends {
     fn transcriber(&self, live: bool) -> Result<Box<dyn Transcriber>, AsrError> {
         let mut asr = lock(&self.asr);
@@ -87,13 +87,16 @@ impl Backends for ModelBackends {
             .paths()
             .mt_dir
             .ok_or_else(|| MtError::Load("the translation model is not installed yet".into()))?;
-        // The onnxruntime-android AAR puts the library next to ours.
-        examic_mt::init_runtime(std::path::Path::new("libonnxruntime.so"))?;
+        // The onnxruntime-android AAR puts the library next to ours; a host
+        // build names it in ORT_DYLIB_PATH.
+        let library =
+            std::env::var_os("ORT_DYLIB_PATH").unwrap_or_else(|| "libonnxruntime.so".into());
+        examic_mt::init_runtime(std::path::Path::new(&library))?;
         Ok(Box::new(examic_mt::OpusMt::load(&dir, 2)?))
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", feature = "native")))]
 impl Backends for ModelBackends {
     fn transcriber(&self, _live: bool) -> Result<Box<dyn Transcriber>, AsrError> {
         Err(AsrError::Unavailable)

@@ -10,7 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 /// One entry per schema version; entry `n` upgrades version `n` to `n + 1`.
 /// Shipped entries are never edited, only appended to.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
     CREATE TABLE recordings (
         id            TEXT PRIMARY KEY,
         title         TEXT NOT NULL,
@@ -37,7 +38,8 @@ const MIGRATIONS: &[&str] = &["
         end_ms       INTEGER NOT NULL,
         PRIMARY KEY (recording_id, start_ms)
     ) STRICT, WITHOUT ROWID;
-", "
+",
+    "
     ALTER TABLE recordings ADD COLUMN transcribe_mode TEXT NOT NULL DEFAULT 'OFF'
         CHECK (transcribe_mode IN ('OFF', 'LIVE', 'AFTER'));
     ALTER TABLE recordings ADD COLUMN translate INTEGER NOT NULL DEFAULT 0;
@@ -60,7 +62,8 @@ const MIGRATIONS: &[&str] = &["
         file         TEXT NOT NULL
     ) STRICT;
     CREATE INDEX photos_by_recording ON photos (recording_id, timestamp_ms);
-"];
+",
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -494,7 +497,13 @@ impl Database {
             )?;
             for s in segments {
                 insert
-                    .execute(params![recording_id, s.start_ms, s.end_ms, s.text_ru, s.text_en])
+                    .execute(params![
+                        recording_id,
+                        s.start_ms,
+                        s.end_ms,
+                        s.text_ru,
+                        s.text_en
+                    ])
                     .map_err(not_found_on_constraint)?;
             }
         }
@@ -828,7 +837,10 @@ mod tests {
         let late = db.add_photo("a", 9_000, "photos/a/2.jpg").unwrap();
         let early = db.add_photo("a", 1_000, "photos/a/1.jpg").unwrap();
         let photos = db.photos("a").unwrap();
-        assert_eq!(photos.iter().map(|p| p.id).collect::<Vec<_>>(), [early, late]);
+        assert_eq!(
+            photos.iter().map(|p| p.id).collect::<Vec<_>>(),
+            [early, late]
+        );
         assert_eq!(db.recording("a").unwrap().photo_count, 2);
         assert_eq!(db.delete_photo(early).unwrap().file, "photos/a/1.jpg");
         assert!(matches!(db.delete_photo(early), Err(DbError::NotFound)));

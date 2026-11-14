@@ -32,7 +32,9 @@ impl Entry {
     pub fn time_ms(&self) -> i64 {
         match self {
             Entry::Speech { start_ms, .. } => *start_ms,
-            Entry::Bookmark { timestamp_ms, .. } | Entry::Photo { timestamp_ms, .. } => *timestamp_ms,
+            Entry::Bookmark { timestamp_ms, .. } | Entry::Photo { timestamp_ms, .. } => {
+                *timestamp_ms
+            }
         }
     }
 
@@ -80,14 +82,19 @@ pub fn timeline(
 pub fn clock(ms: i64) -> String {
     let s = ms.max(0) / 1000;
     let (h, m, s) = (s / 3600, s % 3600 / 60, s % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 
 /// The name a photo gets inside an export archive.
 pub fn photo_name(file: &str) -> String {
-    Path::new(file)
-        .file_name()
-        .map_or_else(|| file.replace(['/', '\\'], "_"), |n| n.to_string_lossy().into_owned())
+    Path::new(file).file_name().map_or_else(
+        || file.replace(['/', '\\'], "_"),
+        |n| n.to_string_lossy().into_owned(),
+    )
 }
 
 /// Text that Markdown would otherwise read as formatting at a line start.
@@ -105,25 +112,43 @@ pub fn markdown(recording: &Recording, date: &str, entries: &[Entry]) -> String 
     let mut md = String::new();
     md.push_str(&format!("# {}\n\n", escape_line(recording.title.trim())));
     md.push_str(&format!("- **Date:** {date}\n"));
-    md.push_str(&format!("- **Duration:** {}\n", clock(recording.duration_ms)));
+    md.push_str(&format!(
+        "- **Duration:** {}\n",
+        clock(recording.duration_ms)
+    ));
     if !entries.iter().any(|e| matches!(e, Entry::Speech { .. })) {
         md.push_str("\n_No transcript._\n");
     }
     for entry in entries {
         md.push('\n');
         match entry {
-            Entry::Speech { start_ms, text, translation, .. } => {
-                md.push_str(&format!("**[{}]** {}\n", clock(*start_ms), escape_line(text)));
+            Entry::Speech {
+                start_ms,
+                text,
+                translation,
+                ..
+            } => {
+                md.push_str(&format!(
+                    "**[{}]** {}\n",
+                    clock(*start_ms),
+                    escape_line(text)
+                ));
                 if let Some(en) = translation {
                     md.push_str(&format!("> EN: {}\n", en.replace('\n', " ")));
                 }
             }
             Entry::Bookmark { timestamp_ms, note } => {
-                let note = note.as_deref().map_or_else(|| "Highlight".to_owned(), escape_line);
+                let note = note
+                    .as_deref()
+                    .map_or_else(|| "Highlight".to_owned(), escape_line);
                 md.push_str(&format!("🔖 **[{}]** {note}\n", clock(*timestamp_ms)));
             }
             Entry::Photo { timestamp_ms, file } => {
-                md.push_str(&format!("![{}](photos/{})\n", clock(*timestamp_ms), photo_name(file)));
+                md.push_str(&format!(
+                    "![{}](photos/{})\n",
+                    clock(*timestamp_ms),
+                    photo_name(file)
+                ));
             }
         }
     }
@@ -141,7 +166,11 @@ pub enum ExportFormat {
 
 /// Writes `markdown` to `dest`: as a plain file, or zipped together with the
 /// photos (`(name in archive, file on disk)`) when there are any.
-pub fn write_export(markdown: &str, photos: &[(String, PathBuf)], dest: &Path) -> io::Result<ExportFormat> {
+pub fn write_export(
+    markdown: &str,
+    photos: &[(String, PathBuf)],
+    dest: &Path,
+) -> io::Result<ExportFormat> {
     let mut out = BufWriter::new(File::create(dest)?);
     if photos.is_empty() {
         out.write_all(markdown.as_bytes())?;
@@ -149,15 +178,19 @@ pub fn write_export(markdown: &str, photos: &[(String, PathBuf)], dest: &Path) -
         return Ok(ExportFormat::Markdown);
     }
     let mut zip = zip::ZipWriter::new(out);
-    let text = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let text = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
     // JPEGs are already compressed.
-    let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    zip.start_file("recording.md", text).map_err(io::Error::other)?;
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    zip.start_file("recording.md", text)
+        .map_err(io::Error::other)?;
     zip.write_all(markdown.as_bytes())?;
     for (name, path) in photos {
         match File::open(path) {
             Ok(mut photo) => {
-                zip.start_file(format!("photos/{name}"), stored).map_err(io::Error::other)?;
+                zip.start_file(format!("photos/{name}"), stored)
+                    .map_err(io::Error::other)?;
                 io::copy(&mut photo, &mut zip)?;
             }
             // A photo file gone missing should not sink the whole export.
@@ -203,12 +236,30 @@ mod tests {
 
     fn sample_timeline(include_translation: bool) -> Vec<Entry> {
         timeline(
-            &[segment(61_000, "Откройте учебник.", Some("Open the textbook.")), segment(1_000, "Добрый день.", None)],
             &[
-                Bookmark { id: 1, recording_id: "r".into(), timestamp_ms: 61_000, note: Some("# важно".into()) },
-                Bookmark { id: 2, recording_id: "r".into(), timestamp_ms: 3_700_000, note: None },
+                segment(61_000, "Откройте учебник.", Some("Open the textbook.")),
+                segment(1_000, "Добрый день.", None),
             ],
-            &[Photo { id: 1, recording_id: "r".into(), timestamp_ms: 61_000, file: "photos/r/board.jpg".into() }],
+            &[
+                Bookmark {
+                    id: 1,
+                    recording_id: "r".into(),
+                    timestamp_ms: 61_000,
+                    note: Some("# важно".into()),
+                },
+                Bookmark {
+                    id: 2,
+                    recording_id: "r".into(),
+                    timestamp_ms: 3_700_000,
+                    note: None,
+                },
+            ],
+            &[Photo {
+                id: 1,
+                recording_id: "r".into(),
+                timestamp_ms: 61_000,
+                file: "photos/r/board.jpg".into(),
+            }],
             include_translation,
         )
     }
@@ -220,8 +271,20 @@ mod tests {
         assert_eq!(times, [1_000, 61_000, 61_000, 61_000, 3_700_000]);
         assert!(matches!(t[1], Entry::Bookmark { .. }));
         assert!(matches!(t[2], Entry::Photo { .. }));
-        assert!(matches!(&t[3], Entry::Speech { translation: Some(_), .. }));
-        assert!(sample_timeline(false).iter().all(|e| !matches!(e, Entry::Speech { translation: Some(_), .. })));
+        assert!(matches!(
+            &t[3],
+            Entry::Speech {
+                translation: Some(_),
+                ..
+            }
+        ));
+        assert!(sample_timeline(false).iter().all(|e| !matches!(
+            e,
+            Entry::Speech {
+                translation: Some(_),
+                ..
+            }
+        )));
     }
 
     #[test]
@@ -247,14 +310,23 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("examic-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let md_path = dir.join("a.md");
-        assert_eq!(write_export("# hi\n", &[], &md_path).unwrap(), ExportFormat::Markdown);
+        assert_eq!(
+            write_export("# hi\n", &[], &md_path).unwrap(),
+            ExportFormat::Markdown
+        );
         assert_eq!(std::fs::read_to_string(&md_path).unwrap(), "# hi\n");
 
         let photo = dir.join("board.jpg");
         std::fs::write(&photo, b"\xFF\xD8jpeg").unwrap();
         let zip_path = dir.join("a.zip");
-        let photos = [("board.jpg".to_owned(), photo), ("gone.jpg".to_owned(), dir.join("gone.jpg"))];
-        assert_eq!(write_export("# hi\n", &photos, &zip_path).unwrap(), ExportFormat::Zip);
+        let photos = [
+            ("board.jpg".to_owned(), photo),
+            ("gone.jpg".to_owned(), dir.join("gone.jpg")),
+        ];
+        assert_eq!(
+            write_export("# hi\n", &photos, &zip_path).unwrap(),
+            ExportFormat::Zip
+        );
         let mut archive = zip::ZipArchive::new(File::open(&zip_path).unwrap()).unwrap();
         let names: Vec<String> = archive.file_names().map(String::from).collect();
         assert_eq!(names, ["recording.md", "photos/board.jpg"]);

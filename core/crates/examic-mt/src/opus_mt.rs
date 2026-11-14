@@ -53,8 +53,10 @@ struct Config {
 
 impl Config {
     fn load(path: &Path) -> Result<Self, MtError> {
-        let text = std::fs::read_to_string(path).map_err(|e| MtError::Load(format!("{}: {e}", path.display())))?;
-        let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| MtError::Load(e.to_string()))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| MtError::Load(format!("{}: {e}", path.display())))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| MtError::Load(e.to_string()))?;
         let int = |key: &str| {
             json[key]
                 .as_i64()
@@ -125,15 +127,22 @@ impl OpusMt {
         drop(encoded);
 
         let empty = || -> Result<DynValue, MtError> {
-            Ok(Tensor::from_array(([1usize, c.heads, 0, c.head_dim], Vec::<f32>::new()))
-                .map_err(run_error)?
-                .into_dyn())
+            Ok(
+                Tensor::from_array(([1usize, c.heads, 0, c.head_dim], Vec::<f32>::new()))
+                    .map_err(run_error)?
+                    .into_dyn(),
+            )
         };
         // past[layer][decoder key, decoder value, encoder key, encoder value]
         let mut past: Vec<[DynValue; 4]> = (0..c.layers)
             .map(|_| Ok([empty()?, empty()?, empty()?, empty()?]))
             .collect::<Result<_, MtError>>()?;
-        const KINDS: [&str; 4] = ["decoder.key", "decoder.value", "encoder.key", "encoder.value"];
+        const KINDS: [&str; 4] = [
+            "decoder.key",
+            "decoder.value",
+            "encoder.key",
+            "encoder.value",
+        ];
 
         let mut token = c.decoder_start;
         let mut output = Vec::new();
@@ -142,24 +151,35 @@ impl OpusMt {
             let mut inputs: Vec<(Cow<'_, str>, SessionInputValue<'_>)> = vec![
                 (
                     "input_ids".into(),
-                    Tensor::from_array(([1usize, 1], vec![token])).map_err(run_error)?.into(),
+                    Tensor::from_array(([1usize, 1], vec![token]))
+                        .map_err(run_error)?
+                        .into(),
                 ),
                 ("encoder_attention_mask".into(), (&mask).into()),
                 ("encoder_hidden_states".into(), (&hidden).into()),
                 (
                     "use_cache_branch".into(),
-                    Tensor::from_array(([1usize], vec![step > 0])).map_err(run_error)?.into(),
+                    Tensor::from_array(([1usize], vec![step > 0]))
+                        .map_err(run_error)?
+                        .into(),
                 ),
             ];
             for (layer, values) in past.iter().enumerate() {
                 for (kind, value) in KINDS.iter().zip(values) {
-                    inputs.push((format!("past_key_values.{layer}.{kind}").into(), value.into()));
+                    inputs.push((
+                        format!("past_key_values.{layer}.{kind}").into(),
+                        value.into(),
+                    ));
                 }
             }
             let mut outputs = self.decoder.run(inputs).map_err(run_error)?;
 
-            let (shape, logits) = outputs["logits"].try_extract_tensor::<f32>().map_err(run_error)?;
-            let vocab = *shape.last().ok_or_else(|| run_error("logits have no shape"))? as usize;
+            let (shape, logits) = outputs["logits"]
+                .try_extract_tensor::<f32>()
+                .map_err(run_error)?;
+            let vocab = *shape
+                .last()
+                .ok_or_else(|| run_error("logits have no shape"))? as usize;
             let last = &logits[logits.len() - vocab..];
             token = last
                 .iter()
@@ -167,7 +187,11 @@ impl OpusMt {
                 // generation_config.json: bad_words_ids = [[pad]].
                 .filter(|&(id, _)| id as i64 != c.pad)
                 .fold((c.eos, f32::NEG_INFINITY), |best, (id, &score)| {
-                    if score > best.1 { (id as i64, score) } else { best }
+                    if score > best.1 {
+                        (id as i64, score)
+                    } else {
+                        best
+                    }
                 })
                 .0;
             if token == c.eos {
@@ -182,7 +206,9 @@ impl OpusMt {
                 for (slot, kind) in KINDS.iter().enumerate().take(kinds) {
                     values[slot] = outputs
                         .remove(format!("present.{layer}.{kind}"))
-                        .ok_or_else(|| run_error(format!("decoder produced no present.{layer}.{kind}")))?;
+                        .ok_or_else(|| {
+                            run_error(format!("decoder produced no present.{layer}.{kind}"))
+                        })?;
                 }
             }
         }
