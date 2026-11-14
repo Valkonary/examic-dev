@@ -44,8 +44,8 @@ android {
         // microphone model; it also lets the manifest skip legacy storage.
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         ndk { abiFilters += rustAbis }
     }
 
@@ -69,9 +69,10 @@ android {
         }
     }
 
-    // The models are memory-mapped or read whole; stored uncompressed they
-    // copy out of the APK at disk speed on first launch.
-    androidResources { noCompress += listOf("gguf", "onnx", "model") }
+    // Every model file is stored uncompressed: the big ones then copy out of
+    // the APK at disk speed on first launch, and all of them can report their
+    // size through AssetManager.openFd(), which fails on compressed assets.
+    androidResources { noCompress += listOf("gguf", "onnx", "model", "json", "txt") }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -79,6 +80,9 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    // android.util.Log and friends do nothing in JVM unit tests.
+    testOptions { unitTests.isReturnDefaultValues = true }
 
     // Stored uncompressed and page-aligned, so the loader maps the library
     // straight from the APK (required for 16 KB page devices).
