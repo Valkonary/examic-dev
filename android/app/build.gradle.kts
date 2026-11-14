@@ -69,9 +69,10 @@ android {
         }
     }
 
-    // The models are memory-mapped or read whole; stored uncompressed they
-    // copy out of the APK at disk speed on first launch.
-    androidResources { noCompress += listOf("gguf", "onnx", "model") }
+    // Every model file is stored uncompressed: the big ones then copy out of
+    // the APK at disk speed on first launch, and all of them can report their
+    // size through AssetManager.openFd(), which fails on compressed assets.
+    androidResources { noCompress += listOf("gguf", "onnx", "model", "json", "txt") }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
