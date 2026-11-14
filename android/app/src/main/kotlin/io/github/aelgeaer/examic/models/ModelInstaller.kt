@@ -1,11 +1,12 @@
 package io.github.aelgeaer.examic.models
 
 import android.content.Context
-import android.content.pm.PackageInfo
+import android.content.res.AssetManager
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -24,33 +25,65 @@ sealed interface ModelState {
     data class Failed(val message: String) : ModelState
 }
 
+/** The APK's assets, as far as the installer needs them; replaced in tests. */
+interface AssetSource {
+    /** Names directly under [path]; empty for a file. */
+    fun list(path: String): List<String>
+
+    fun open(path: String): InputStream
+
+    /**
+     * The size of [path] if it is stored uncompressed, or `null`. Compressed
+     * assets cannot report a size without being read.
+     */
+    fun storedLength(path: String): Long?
+}
+
+private class ApkAssets(private val assets: AssetManager) : AssetSource {
+    override fun list(path: String): List<String> = assets.list(path).orEmpty().toList()
+
+    override fun open(path: String): InputStream = assets.open(path)
+
+    override fun storedLength(path: String): Long? =
+        try {
+            // openFd works only on uncompressed assets (noCompress in build.gradle.kts).
+            assets.openFd(path).use { it.length }
+        } catch (e: IOException) {
+            null
+        }
+}
+
 /**
  * Copies the bundled models out of the APK into the app's files directory.
  *
  * transcribe.cpp memory-maps its model from a real file path, which an asset
  * inside the APK does not have; ONNX Runtime is given files for the same
  * reason. The copy happens once per app version and is stamped when complete,
- * so an interrupted copy is simply redone on the next start.
+ * so an interrupted or failed copy is simply redone on the next start.
  */
-class ModelInstaller(private val context: Context) {
+class ModelInstaller internal constructor(
+    private val assets: AssetSource,
+    private val root: File,
+    private val stampName: () -> String,
+) {
+    constructor(context: Context) : this(
+        ApkAssets(context.assets),
+        File(context.filesDir, "models"),
+        {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            "installed-${info.longVersionCode}-${info.lastUpdateTime}"
+        },
+    )
+
     private val mutableState = MutableStateFlow<ModelState>(ModelState.Checking)
     val state: StateFlow<ModelState> = mutableState
-
-    private val root = File(context.filesDir, "models")
-
-    private fun versionStamp(): String {
-        val info: PackageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        return "installed-${info.longVersionCode}-${info.lastUpdateTime}"
-    }
 
     /** Assets under `models/`, recursively, as paths relative to it. */
     private fun bundledFiles(dir: String = ""): List<String> {
         val path = if (dir.isEmpty()) ASSET_ROOT else "$ASSET_ROOT/$dir"
-        val children = context.assets.list(path).orEmpty()
-        return children.flatMap { name ->
+        return assets.list(path).flatMap { name ->
             val relative = if (dir.isEmpty()) name else "$dir/$name"
-            val grandchildren = context.assets.list("$ASSET_ROOT/$relative").orEmpty()
-            if (grandchildren.isEmpty()) listOf(relative) else bundledFiles(relative)
+            if (assets.list("$ASSET_ROOT/$relative").isEmpty()) listOf(relative) else bundledFiles(relative)
         }
     }
 
@@ -70,18 +103,15 @@ class ModelInstaller(private val context: Context) {
     }
 
     private fun installOrSkip(): ModelState {
-        val stamp = File(root, versionStamp())
+        val stamp = File(root, stampName())
         if (stamp.exists()) return ready()
 
         val files = bundledFiles()
         if (ASR_MODEL !in files) return ModelState.NotBundled
 
-        // Uncompressed assets (see noCompress in build.gradle.kts) report
-        // their length, which drives the progress bar.
-        val sizes = files.associateWith { name ->
-            context.assets.openFd("$ASSET_ROOT/$name").use { it.length }
-        }
-        val total = sizes.values.sum().coerceAtLeast(1)
+        // The big files are stored uncompressed and report their size, which
+        // is all the progress bar needs; small compressed ones count as 0.
+        val total = files.sumOf { assets.storedLength("$ASSET_ROOT/$it") ?: 0L }.coerceAtLeast(1)
         var copied = 0L
         mutableState.value = ModelState.Installing(0f)
 
@@ -92,14 +122,14 @@ class ModelInstaller(private val context: Context) {
             val target = File(root, name)
             target.parentFile?.mkdirs()
             val partial = File(target.parentFile, target.name + ".part")
-            context.assets.open("$ASSET_ROOT/$name").use { input ->
+            assets.open("$ASSET_ROOT/$name").use { input ->
                 FileOutputStream(partial).use { output ->
                     while (true) {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
                         copied += n
-                        mutableState.value = ModelState.Installing(copied.toFloat() / total)
+                        mutableState.value = ModelState.Installing((copied.toFloat() / total).coerceAtMost(1f))
                     }
                     output.fd.sync()
                 }

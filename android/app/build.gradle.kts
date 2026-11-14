@@ -44,8 +44,8 @@ android {
         // microphone model; it also lets the manifest skip legacy storage.
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         ndk { abiFilters += rustAbis }
     }
 
@@ -79,6 +79,9 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    // android.util.Log and friends do nothing in JVM unit tests.
+    testOptions { unitTests.isReturnDefaultValues = true }
 
     // Stored uncompressed and page-aligned, so the loader maps the library
     // straight from the APK (required for 16 KB page devices).
